@@ -1,0 +1,19 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "java",
+            "name": "Current File",
+            "request": "launch",
+            "mainClass": "${file}"
+        },
+        {
+            "type": "java",
+            "name": "HomeTabSwing",
+            "request": "launch",
+            "mainClass": "Graphical.HomeTabSwing",
+            "projectName": "JavaCat_14d8badf",
+            "vmArgs": " --module-path \"C:/java/javafx-sdk-21.0.2/lib\" --add-modules javafx.controls,javafx.fxml"
+        }
+    ]
+}
