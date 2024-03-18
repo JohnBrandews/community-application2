@@ -2,7 +2,6 @@ package Graphical;
 
 import javafx.application.Application;
 import javafx.collections.FXCollections;
-import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -17,7 +16,6 @@ import java.util.HashMap;
 
 public class HomeTabSwing extends Application {
 
-    private final ObservableList<String> allActivities = FXCollections.observableArrayList();
     private final HashMap<String, String> userDataMap = new HashMap<>();
     private final HashMap<String, String> adminDataMap = new HashMap<>();
 
@@ -44,9 +42,6 @@ public class HomeTabSwing extends Application {
 
         // ActionListener for the "Log In" button
         logInButton.setOnAction(e -> showLogInDialog(primaryStage, activitiesTextArea));
-
-        // Update the activitiesTextArea with the initial activities
-        updateActivitiesTextArea(activitiesTextArea);
 
         Scene scene = new Scene(root, 400, 400);
         primaryStage.setTitle("Home Tab (JavaFX)");
@@ -144,7 +139,7 @@ public class HomeTabSwing extends Application {
         });
 
         logInDialog.showAndWait().ifPresent(userData -> {
-            showEventsTab(primaryStage, userData.getUserType());
+            showEventsTab(primaryStage, userData.getUserType(), activitiesTextArea);
         });
     }
 
@@ -155,12 +150,12 @@ public class HomeTabSwing extends Application {
         return storedPassword != null && storedPassword.equals(password);
     }
 
-    private void showEventsTab(Stage primaryStage, String userType) {
+    private void showEventsTab(Stage primaryStage, String userType, TextArea activitiesTextArea) {
         EventsTabSwing eventsTab;
         if (userType.equals("Admin")) {
-            eventsTab = new EventsTabSwing(userType, allActivities, true); // Pass true for admin access
+            eventsTab = new EventsTabSwing(userType, true, activitiesTextArea); // Pass true for admin access
         } else {
-            eventsTab = new EventsTabSwing(userType, allActivities, false); // Pass false for normal user access
+            eventsTab = new EventsTabSwing(userType, false, activitiesTextArea); // Pass false for normal user access
         }
 
         Scene scene = new Scene(eventsTab, 600, 400);
@@ -168,13 +163,6 @@ public class HomeTabSwing extends Application {
         eventsStage.setTitle("Events Tab");
         eventsStage.setScene(scene);
         eventsStage.show();
-    }
-
-    private void updateActivitiesTextArea(TextArea activitiesTextArea) {
-        activitiesTextArea.clear();
-        for (String activity : allActivities) {
-            activitiesTextArea.appendText(activity + "\n");
-        }
     }
 
     public static void main(String[] args) {
