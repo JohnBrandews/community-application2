@@ -9,6 +9,7 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
+import java.sql.*;
 import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.Map;
@@ -27,12 +28,14 @@ public class EventsTabSwing extends BorderPane {
     private ObservableList<String> allActivities;
     private ObservableList<String> userMessages;
     private TextArea noticeTextArea;
+    private Connection connection;
 
-    public EventsTabSwing(String userType, boolean isAdmin, TextArea activitiesTextArea) {
+    public EventsTabSwing(String userType, boolean isAdmin, TextArea activitiesTextArea, Connection connection) {
         this.isAdmin = isAdmin;
         this.activitiesTextArea = activitiesTextArea;
         this.allActivities = FXCollections.observableArrayList();
         this.userMessages = FXCollections.observableArrayList();
+        this.connection = connection;
 
         // Create a panel for the buttons
         HBox buttonPanel = new HBox();
@@ -48,6 +51,9 @@ public class EventsTabSwing extends BorderPane {
         eventCategories.put("Burials", FXCollections.observableArrayList());
         eventCategories.put("Sports Activities", FXCollections.observableArrayList());
         eventCategories.put("Voluntary Activities", FXCollections.observableArrayList());
+
+        // Load events from the database
+        loadEventsFromDatabase();
 
         // Add action listeners to buttons
         weddingsButton.setOnAction(e -> showEventUI("Weddings"));
@@ -83,6 +89,28 @@ public class EventsTabSwing extends BorderPane {
             noticeTextArea.setEditable(false);
             noticeTextArea.setPromptText("No notice posted yet.");
             setRight(noticeTextArea);
+        }
+    }
+
+    private void loadEventsFromDatabase() {
+        try {
+            String query = "SELECT * FROM events";
+            PreparedStatement statement = connection.prepareStatement(query);
+            ResultSet resultSet = statement.executeQuery();
+
+            while (resultSet.next()) {
+                String eventName = resultSet.getString("name");
+                String eventCategory = resultSet.getString("category");
+                LocalDateTime eventDateTime = resultSet.getTimestamp("date_time").toLocalDateTime();
+
+                Event event = new Event(eventName, eventDateTime);
+                eventCategories.get(eventCategory).add(event);
+                allActivities.add(event.toString());
+            }
+
+            updateActivitiesTextArea();
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
 
@@ -151,12 +179,26 @@ public class EventsTabSwing extends BorderPane {
 
         Optional<Event> result = eventDialog.showAndWait();
         result.ifPresent(newEvent -> {
+            storeEventInDatabase(newEvent, category);
             eventCategories.get(category).add(newEvent);
             displayEvents(category, null);
             allActivities.add(newEvent.toString());
             updateActivitiesTextArea();
             eventTextArea.clear(); // Clear the eventTextArea after submitting the event
         });
+    }
+
+    private void storeEventInDatabase(Event event, String category) {
+        try {
+            String query = "INSERT INTO events (name, category, date_time) VALUES (?, ?, ?)";
+            PreparedStatement statement = connection.prepareStatement(query);
+            statement.setString(1, event.getName());
+            statement.setString(2, category);
+            statement.setTimestamp(3, Timestamp.valueOf(event.getDateTime()));
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private void deleteEvent(String category) {
@@ -169,11 +211,24 @@ public class EventsTabSwing extends BorderPane {
 
         Optional<Event> result = dialog.showAndWait();
         result.ifPresent(selectedEvent -> {
+            deleteEventFromDatabase(selectedEvent);
             events.remove(selectedEvent);
             displayEvents(category, null);
             allActivities.remove(selectedEvent.toString());
             updateActivitiesTextArea();
         });
+    }
+
+    private void deleteEventFromDatabase(Event event) {
+        try {
+            String query = "DELETE FROM events WHERE name = ? AND date_time = ?";
+            PreparedStatement statement = connection.prepareStatement(query);
+            statement.setString(1, event.getName());
+            statement.setTimestamp(2, Timestamp.valueOf(event.getDateTime()));
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private void editEvent(String category) {
@@ -220,6 +275,7 @@ public class EventsTabSwing extends BorderPane {
 
             Optional<Event> editResult = editDialog.showAndWait();
             editResult.ifPresent(newEvent -> {
+                updateEventInDatabase(selectedEvent, newEvent);
                 int index = events.indexOf(selectedEvent);
                 events.set(index, newEvent);
                 displayEvents(category, null);
@@ -228,6 +284,20 @@ public class EventsTabSwing extends BorderPane {
                 updateActivitiesTextArea();
             });
         });
+    }
+
+    private void updateEventInDatabase(Event oldEvent, Event newEvent) {
+        try {
+            String query = "UPDATE events SET name = ?, date_time = ? WHERE name = ? AND date_time = ?";
+            PreparedStatement statement = connection.prepareStatement(query);
+            statement.setString(1, newEvent.getName());
+            statement.setTimestamp(2, Timestamp.valueOf(newEvent.getDateTime()));
+            statement.setString(3, oldEvent.getName());
+            statement.setTimestamp(4, Timestamp.valueOf(oldEvent.getDateTime()));
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 
     private void displayEvents(String category, VBox eventsDisplay) {
