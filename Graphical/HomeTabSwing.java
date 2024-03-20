@@ -12,15 +12,35 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.Stage;
 
+import java.sql.*;
+import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.Optional;
 
 public class HomeTabSwing extends Application {
 
-    private final HashMap<String, String> userDataMap = new HashMap<>();
-    private final HashMap<String, String> adminDataMap = new HashMap<>();
+    private final Map<String, String> userDataMap = new HashMap<>();
+    private final Map<String, String> adminDataMap = new HashMap<>();
+
+    // MySQL database connection details
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/community_platform";
+    private static final String DB_USER = "your_username";
+    private static final String DB_PASSWORD = "your_password";
+
+    private Connection connection;
 
     @Override
     public void start(Stage primaryStage) {
+        // Connect to the MySQL database
+        try {
+            connection = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+            System.out.println("Connected to the database successfully!");
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return;
+        }
+
         BorderPane root = new BorderPane();
 
         // Create a TextArea to display all activities
@@ -92,11 +112,16 @@ public class HomeTabSwing extends Application {
     }
 
     private void storeUserData(String name, String password, String userType) {
-        // Store the user data in the appropriate HashMap
-        if (userType.equals("Admin")) {
-            adminDataMap.put(name, password);
-        } else {
-            userDataMap.put(name, password);
+        // Store the user data in the MySQL database
+        try {
+            String query = "INSERT INTO users (name, password, user_type) VALUES (?, ?, ?)";
+            PreparedStatement statement = connection.prepareStatement(query);
+            statement.setString(1, name);
+            statement.setString(2, password);
+            statement.setString(3, userType);
+            statement.executeUpdate();
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
 
@@ -144,18 +169,27 @@ public class HomeTabSwing extends Application {
     }
 
     private boolean validateUserData(String name, String password, String userType) {
-        // Checking against the stored HashMaps
-        HashMap<String, String> dataMap = userType.equals("Admin") ? adminDataMap : userDataMap;
-        String storedPassword = dataMap.get(name);
-        return storedPassword != null && storedPassword.equals(password);
+        // Validate user data against the MySQL database
+        try {
+            String query = "SELECT * FROM users WHERE name = ? AND password = ? AND user_type = ?";
+            PreparedStatement statement = connection.prepareStatement(query);
+            statement.setString(1, name);
+            statement.setString(2, password);
+            statement.setString(3, userType);
+            ResultSet resultSet = statement.executeQuery();
+            return resultSet.next();
+        } catch (SQLException e) {
+            e.printStackTrace();
+            return false;
+        }
     }
 
     private void showEventsTab(Stage primaryStage, String userType, TextArea activitiesTextArea) {
         EventsTabSwing eventsTab;
         if (userType.equals("Admin")) {
-            eventsTab = new EventsTabSwing(userType, true, activitiesTextArea); // Pass true for admin access
+            eventsTab = new EventsTabSwing(userType, true, activitiesTextArea, connection); // Pass true for admin access and the database connection
         } else {
-            eventsTab = new EventsTabSwing(userType, false, activitiesTextArea); // Pass false for normal user access
+            eventsTab = new EventsTabSwing(userType, false, activitiesTextArea, connection); // Pass false for normal user access and the database connection
         }
 
         Scene scene = new Scene(eventsTab, 600, 400);
@@ -173,6 +207,7 @@ public class HomeTabSwing extends Application {
         private final String name;
         private final String password;
         private final String userType;
+        
 
         UserData(String name, String password, String userType) {
             this.name = name;
