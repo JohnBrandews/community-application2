@@ -11,31 +11,26 @@ import javafx.scene.layout.VBox;
 
 import java.sql.*;
 import java.time.LocalDateTime;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Optional;
 
 public class EventsTabSwing extends BorderPane {
-    private final Map<String, ObservableList<Event>> eventCategories = new HashMap<>();
+
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/boma"; // Replace with your MySQL server URL
+    private static final String DB_USERNAME = "your_username"; // Replace with your MySQL username
+    private static final String DB_PASSWORD = "your_password"; // Replace with your MySQL password
+
     private TextArea eventTextArea;
     private Button submitButton;
     private Button deleteButton;
     private Button editButton;
-    private Button chatButton;
-    private Button recentMessagesButton;
     private boolean isAdmin;
     private TextArea activitiesTextArea;
     private ObservableList<String> allActivities;
-    private ObservableList<String> userMessages;
-    private TextArea noticeTextArea;
-    private Connection connection;
 
-    public EventsTabSwing(String userType, boolean isAdmin, TextArea activitiesTextArea, Connection connection) {
+    public EventsTabSwing(String userType, boolean isAdmin, TextArea activitiesTextArea) {
         this.isAdmin = isAdmin;
         this.activitiesTextArea = activitiesTextArea;
         this.allActivities = FXCollections.observableArrayList();
-        this.userMessages = FXCollections.observableArrayList();
-        this.connection = connection;
 
         // Create a panel for the buttons
         HBox buttonPanel = new HBox();
@@ -45,15 +40,6 @@ public class EventsTabSwing extends BorderPane {
         Button burialsButton = new Button("Burials");
         Button sportsButton = new Button("Sports Activities");
         Button voluntaryButton = new Button("Voluntary Activities");
-
-        // Initialize event lists for each category
-        eventCategories.put("Weddings", FXCollections.observableArrayList());
-        eventCategories.put("Burials", FXCollections.observableArrayList());
-        eventCategories.put("Sports Activities", FXCollections.observableArrayList());
-        eventCategories.put("Voluntary Activities", FXCollections.observableArrayList());
-
-        // Load events from the database
-        loadEventsFromDatabase();
 
         // Add action listeners to buttons
         weddingsButton.setOnAction(e -> showEventUI("Weddings"));
@@ -69,49 +55,6 @@ public class EventsTabSwing extends BorderPane {
 
         // Initialize the event panel with the "Weddings" category
         showEventUI("Weddings");
-
-        // Add chat button and recent messages button if applicable
-        if (!isAdmin) {
-            chatButton = new Button("Chat with Admin");
-            chatButton.setOnAction(e -> showChatDialog());
-            setBottom(chatButton);
-        } else {
-            recentMessagesButton = new Button("Recent Messages");
-            recentMessagesButton.setOnAction(e -> showRecentMessages());
-
-            Button postNoticeButton = new Button("Post Notice");
-            postNoticeButton.setOnAction(e -> showPostNoticeDialog());
-
-            HBox adminButtons = new HBox(recentMessagesButton, postNoticeButton);
-            setBottom(adminButtons);
-
-            noticeTextArea = new TextArea();
-            noticeTextArea.setEditable(false);
-            noticeTextArea.setPromptText("No notice posted yet.");
-            setRight(noticeTextArea);
-        }
-    }
-
-    private void loadEventsFromDatabase() {
-        try {
-            String query = "SELECT * FROM events";
-            PreparedStatement statement = connection.prepareStatement(query);
-            ResultSet resultSet = statement.executeQuery();
-
-            while (resultSet.next()) {
-                String eventName = resultSet.getString("name");
-                String eventCategory = resultSet.getString("category");
-                LocalDateTime eventDateTime = resultSet.getTimestamp("date_time").toLocalDateTime();
-
-                Event event = new Event(eventName, eventDateTime);
-                eventCategories.get(eventCategory).add(event);
-                allActivities.add(event.toString());
-            }
-
-            updateActivitiesTextArea();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
     }
 
     private void showEventUI(String category) {
@@ -172,141 +115,107 @@ public class EventsTabSwing extends BorderPane {
             if (dialogButton == ButtonType.OK) {
                 String eventName = eventNameField.getText();
                 LocalDateTime eventDateTime = eventDatePicker.getValue().atStartOfDay();
-                return new Event(eventName, eventDateTime);
+                try (Connection conn = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+                    String sql = "INSERT INTO events (name, category, event_date, created_by) VALUES (?, ?, ?, ?)";
+                    PreparedStatement stmt = conn.prepareStatement(sql, PreparedStatement.RETURN_GENERATED_KEYS);
+                    stmt.setString(1, eventName);
+                    stmt.setString(2, category);
+                    stmt.setDate(3, java.sql.Date.valueOf(eventDateTime.toLocalDate()));
+                    
+                    stmt.executeUpdate();
+
+                    ResultSet rs = stmt.getGeneratedKeys();
+                    if (rs.next()) {
+                        int eventId = rs.getInt(1);
+                        Event newEvent = new Event(eventId, eventName, eventDateTime);
+                        allActivities.add(newEvent.toString());
+                        updateActivitiesTextArea();
+                        return newEvent;
+                    }
+                } catch (SQLException e) {
+                    e.printStackTrace();
+                }
             }
             return null;
         });
 
         Optional<Event> result = eventDialog.showAndWait();
         result.ifPresent(newEvent -> {
-            storeEventInDatabase(newEvent, category);
-            eventCategories.get(category).add(newEvent);
             displayEvents(category, null);
-            allActivities.add(newEvent.toString());
-            updateActivitiesTextArea();
-            eventTextArea.clear(); // Clear the eventTextArea after submitting the event
         });
-    }
-
-    private void storeEventInDatabase(Event event, String category) {
-        try {
-            String query = "INSERT INTO events (name, category, date_time) VALUES (?, ?, ?)";
-            PreparedStatement statement = connection.prepareStatement(query);
-            statement.setString(1, event.getName());
-            statement.setString(2, category);
-            statement.setTimestamp(3, Timestamp.valueOf(event.getDateTime()));
-            statement.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
     }
 
     private void deleteEvent(String category) {
         // Show a dialog to select the event to delete
-        ObservableList<Event> events = eventCategories.get(category);
-        ChoiceDialog<Event> dialog = new ChoiceDialog<>(null, events);
+        Dialog<Event> dialog = new Dialog<>();
         dialog.setTitle("Delete Event");
         dialog.setHeaderText("Select the event to delete");
-        dialog.setContentText("Event:");
 
-        Optional<Event> result = dialog.showAndWait();
-        result.ifPresent(selectedEvent -> {
-            deleteEventFromDatabase(selectedEvent);
-            events.remove(selectedEvent);
-            displayEvents(category, null);
-            allActivities.remove(selectedEvent.toString());
-            updateActivitiesTextArea();
-        });
-    }
+        DialogPane dialogPane = dialog.getDialogPane();
+        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
 
-    private void deleteEventFromDatabase(Event event) {
-        try {
-            String query = "DELETE FROM events WHERE name = ? AND date_time = ?";
-            PreparedStatement statement = connection.prepareStatement(query);
-            statement.setString(1, event.getName());
-            statement.setTimestamp(2, Timestamp.valueOf(event.getDateTime()));
-            statement.executeUpdate();
-        } catch (SQLException e) {
-            e.printStackTrace();
-        }
-    }
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+            String sql = "SELECT id, name, event_date FROM events WHERE category = ?";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+            stmt.setString(1, category);
+            ResultSet rs = stmt.executeQuery();
+            ObservableList<Event> events = FXCollections.observableArrayList();
+            while (rs.next()) {
+                int eventId = rs.getInt("id");
+                String eventName = rs.getString("name");
+                LocalDateTime eventDateTime = rs.getDate("event_date").toLocalDate().atStartOfDay();
+                Event event = new Event(eventId, eventName, eventDateTime);
+                events.add(event);
+            }
 
-    private void editEvent(String category) {
-        // Show a dialog to select the event to edit
-        ObservableList<Event> events = eventCategories.get(category);
-        ChoiceDialog<Event> dialog = new ChoiceDialog<>(null, events);
-        dialog.setTitle("Edit Event");
-        dialog.setHeaderText("Select the event to edit");
-        dialog.setContentText("Event:");
+            // Add event list to the dialog
+            VBox eventsVBox = new VBox();
+            for (Event event : events) {
+                Label eventLabel = new Label(event.toString());
+                eventsVBox.getChildren().add(eventLabel);
+            }
+            dialogPane.setContent(eventsVBox);
 
-        Optional<Event> result = dialog.showAndWait();
-        result.ifPresent(selectedEvent -> {
-            // Create a new dialog to edit the event details
-            Dialog<Event> editDialog = new Dialog<>();
-            editDialog.setTitle("Edit Event");
-            editDialog.setHeaderText("Edit the event details");
-
-            DialogPane editDialogPane = editDialog.getDialogPane();
-            editDialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-            GridPane editGrid = new GridPane();
-            editGrid.setHgap(10);
-            editGrid.setVgap(10);
-            editGrid.setPadding(new Insets(20, 150, 10, 10));
-
-            TextField editEventNameField = new TextField(selectedEvent.getName());
-            DatePicker editEventDatePicker = new DatePicker(selectedEvent.getDateTime().toLocalDate());
-
-            editGrid.add(new Label("Event Name:"), 0, 0);
-            editGrid.add(editEventNameField, 1, 0);
-            editGrid.add(new Label("Event Date:"), 0, 1);
-            editGrid.add(editEventDatePicker, 1, 1);
-
-            editDialogPane.setContent(editGrid);
-
-            editDialog.setResultConverter(dialogButton -> {
-                if (dialogButton == ButtonType.OK) {
-                    String newEventName = editEventNameField.getText();
-                    LocalDateTime newEventDateTime = editEventDatePicker.getValue().atStartOfDay();
-                    return new Event(newEventName, newEventDateTime);
+            // Handle event selection and deletion
+            dialog.setResultConverter(buttonType -> {
+                if (buttonType == ButtonType.OK) {
+                    // TODO: Implement event deletion logic
                 }
                 return null;
             });
-
-            Optional<Event> editResult = editDialog.showAndWait();
-            editResult.ifPresent(newEvent -> {
-                updateEventInDatabase(selectedEvent, newEvent);
-                int index = events.indexOf(selectedEvent);
-                events.set(index, newEvent);
-                displayEvents(category, null);
-                int activityIndex = allActivities.indexOf(selectedEvent.toString());
-                allActivities.set(activityIndex, newEvent.toString());
-                updateActivitiesTextArea();
-            });
-        });
-    }
-
-    private void updateEventInDatabase(Event oldEvent, Event newEvent) {
-        try {
-            String query = "UPDATE events SET name = ?, date_time = ? WHERE name = ? AND date_time = ?";
-            PreparedStatement statement = connection.prepareStatement(query);
-            statement.setString(1, newEvent.getName());
-            statement.setTimestamp(2, Timestamp.valueOf(newEvent.getDateTime()));
-            statement.setString(3, oldEvent.getName());
-            statement.setTimestamp(4, Timestamp.valueOf(oldEvent.getDateTime()));
-            statement.executeUpdate();
         } catch (SQLException e) {
             e.printStackTrace();
         }
+
+        dialog.showAndWait();
+    }
+
+    private void editEvent(String category) {
+        // TODO: Implement edit event logic
     }
 
     private void displayEvents(String category, VBox eventsDisplay) {
         if (eventsDisplay != null) {
             eventsDisplay.getChildren().clear();
-            for (Event event : eventCategories.get(category)) {
-                Label eventLabel = new Label(event.toString());
-                eventsDisplay.getChildren().add(eventLabel);
+        }
+
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+            String sql = "SELECT id, name, event_date FROM events WHERE category = ?";
+            PreparedStatement stmt = conn.prepareStatement(sql);
+            stmt.setString(1, category);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                int eventId = rs.getInt("id");
+                String eventName = rs.getString("name");
+                LocalDateTime eventDateTime = rs.getDate("event_date").toLocalDate().atStartOfDay();
+                Event event = new Event(eventId, eventName, eventDateTime);
+                if (eventsDisplay != null) {
+                    Label eventLabel = new Label(event.toString());
+                    eventsDisplay.getChildren().add(eventLabel);
+                }
             }
+        } catch (SQLException e) {
+            e.printStackTrace();
         }
     }
 
@@ -317,81 +226,19 @@ public class EventsTabSwing extends BorderPane {
         }
     }
 
-    private void showChatDialog() {
-        Dialog<String> chatDialog = new Dialog<>();
-        chatDialog.setTitle("Chat with Admin");
-        chatDialog.setHeaderText("Enter your message for the admin");
-
-        DialogPane dialogPane = chatDialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        TextArea messageTextArea = new TextArea();
-        messageTextArea.setPromptText("Write your message here...");
-        dialogPane.setContent(messageTextArea);
-
-        chatDialog.setResultConverter(dialogButton -> {
-            if (dialogButton == ButtonType.OK) {
-                return messageTextArea.getText();
-            }
-            return null;
-        });
-
-        Optional<String> result = chatDialog.showAndWait();
-        result.ifPresent(message -> {
-            userMessages.add(message); // Update the userMessages list with the new message
-        });
-    }
-
-    private void showRecentMessages() {
-        Dialog<Void> messagesDialog = new Dialog<>();
-        messagesDialog.setTitle("Recent Messages");
-        messagesDialog.setHeaderText("Messages from users");
-
-        DialogPane dialogPane = messagesDialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(ButtonType.CLOSE);
-
-        TextArea messagesTextArea = new TextArea();
-        messagesTextArea.setEditable(false);
-        for (String message : userMessages) {
-            messagesTextArea.appendText(message + "\n");
-        }
-        dialogPane.setContent(messagesTextArea);
-
-        messagesDialog.showAndWait();
-    }
-
-    private void showPostNoticeDialog() {
-        Dialog<String> noticeDialog = new Dialog<>();
-        noticeDialog.setTitle("Post Notice");
-        noticeDialog.setHeaderText("Enter your notice");
-
-        DialogPane dialogPane = noticeDialog.getDialogPane();
-        dialogPane.getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        TextArea noticeTextArea = new TextArea();
-        noticeTextArea.setPromptText("Write your notice here...");
-        dialogPane.setContent(noticeTextArea);
-
-        noticeDialog.setResultConverter(dialogButton -> {
-            if (dialogButton == ButtonType.OK) {
-                return noticeTextArea.getText();
-            }
-            return null;
-        });
-
-        Optional<String> result = noticeDialog.showAndWait();
-        result.ifPresent(notice -> {
-            this.noticeTextArea.setText(notice);
-        });
-    }
-
     private static class Event {
+        private final int id;
         private final String name;
         private final LocalDateTime dateTime;
 
-        Event(String name, LocalDateTime dateTime) {
+        Event(int id, String name, LocalDateTime dateTime) {
+            this.id = id;
             this.name = name;
             this.dateTime = dateTime;
+        }
+
+        int getId() {
+            return id;
         }
 
         String getName() {
