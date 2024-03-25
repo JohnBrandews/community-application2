@@ -18,8 +18,8 @@ import java.sql.*;
 public class HomeTabSwing extends Application {
 
     private static final String DB_URL = "jdbc:mysql://localhost:3306/boma"; // Replace with your MySQL server URL
-    private static final String DB_USERNAME = "your_username"; // Replace with your MySQL username
-    private static final String DB_PASSWORD = "your_password"; // Replace with your MySQL password
+    private static final String DB_USERNAME = "root"; // Replace with your MySQL username
+    private static final String DB_PASSWORD = "password"; // Replace with your MySQL password
 
     @Override
     public void start(Stage primaryStage) {
@@ -63,13 +63,13 @@ public class HomeTabSwing extends Application {
 
         TextField nameField = new TextField();
         PasswordField passwordField = new PasswordField();
-        ComboBox<String> userTypeComboBox = new ComboBox<>(FXCollections.observableArrayList("Normal User", "Admin"));
+        ComboBox<String> userTypeComboBox = new ComboBox<>(FXCollections.observableArrayList("normal", "admin"));
 
         signUpPane.add(new Label("Enter your name:"), 0, 0);
         signUpPane.add(nameField, 1, 0);
         signUpPane.add(new Label("Enter your password:"), 0, 1);
         signUpPane.add(passwordField, 1, 1);
-        signUpPane.add(new Label("User Type:"), 0, 2);
+        signUpPane.add(new Label("user type:"), 0, 2);
         signUpPane.add(userTypeComboBox, 1, 2);
 
         signUpDialog.getDialogPane().setContent(signUpPane);
@@ -81,9 +81,9 @@ public class HomeTabSwing extends Application {
             if (param == signUpButtonType) {
                 String name = nameField.getText();
                 String password = passwordField.getText();
-                String userType = userTypeComboBox.getValue();
-                if (storeUserData(name, password, userType)) {
-                    return new UserData(name, password, userType, 0);
+                String usertype = userTypeComboBox.getValue();
+                if (storeUserData(name, password, usertype)) {
+                    return new UserData(name, password, usertype, 0);
                 }
             }
             return null;
@@ -93,14 +93,30 @@ public class HomeTabSwing extends Application {
             showLogInDialog(primaryStage, activitiesTextArea);
         });
     }
-
     private boolean storeUserData(String name, String password, String userType) {
         try (Connection conn = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+            String checkUsernameQuery = "SELECT COUNT(*) FROM users WHERE username = ?";
+            PreparedStatement checkStmt = conn.prepareStatement(checkUsernameQuery);
+            checkStmt.setString(1, name);
+            ResultSet rs = checkStmt.executeQuery();
+            rs.next();
+            int count = rs.getInt(1);
+    
+            if (count > 0) {
+                // Username already exists, handle the error condition
+                System.out.println("Username already exists. Please choose a different username.");
+                return false;
+            }
+    
             String sql = "INSERT INTO users (username, password_hash, user_type) VALUES (?, ?, ?)";
             PreparedStatement stmt = conn.prepareStatement(sql);
             stmt.setString(1, name);
-            stmt.setString(2, userType.equals("Admin") ? null : password); // Set password_hash to null for admins
-            stmt.setString(3, userType);
+            if (userType.equalsIgnoreCase("admin")) {
+                stmt.setString(2, "admin123");
+            } else {
+                stmt.setString(2, password);
+            }
+            stmt.setString(3, userType.equalsIgnoreCase("admin") ? "admin" : "normal");
             int rowsInserted = stmt.executeUpdate();
             return rowsInserted > 0;
         } catch (SQLException e) {
@@ -138,19 +154,19 @@ public class HomeTabSwing extends Application {
             if (param == logInButtonType) {
                 String name = nameField.getText();
                 String password = passwordField.getText();
-                String userType = userTypeComboBox.getValue();
-                int userId = validateUserData(name, password, userType); // Modified to return userId
+                String usertype = userTypeComboBox.getValue();
+                int userId = validateUserData(name, password, usertype); // Modified to return userId
                 if (userId != -1) {
                     // Store the userId in a static variable or other data structure
                     // Example: currentUserId = userId;
-                    return new UserData(name, password, userType, userId);
+                    return new UserData(name, password, usertype, userId);
                 }
             }
             return null;
         });
     
         logInDialog.showAndWait().ifPresent(userData -> {
-            showEventsTab(primaryStage, userData.getUserType(), activitiesTextArea);
+            showEventsTab(primaryStage, userData.getusertype(), activitiesTextArea);
         });
     }
     private int validateUserData(String name, String password, String userType) {
@@ -158,13 +174,16 @@ public class HomeTabSwing extends Application {
             String sql = "SELECT id, password_hash FROM users WHERE username = ? AND user_type = ?";
             PreparedStatement stmt = conn.prepareStatement(sql);
             stmt.setString(1, name);
-            stmt.setString(2, userType.equals("admin") ? "admin" : "normal");
+            stmt.setString(2, userType.equalsIgnoreCase("admin") ? "admin" : "normal");
             ResultSet rs = stmt.executeQuery();
             if (rs.next()) {
                 int userId = rs.getInt("id");
                 String storedPasswordHash = rs.getString("password_hash");
-                if (userType.equals("admin") && storedPasswordHash == null) {
-                    return userId; // Admin user is valid, return userId
+                if (userType.equalsIgnoreCase("admin")) {
+                    // For admin users, check if the entered password matches the hardcoded password
+                    if (password.equals("admin123")) { // Replace "admin123" with your desired admin password
+                        return userId;
+                    }
                 } else if (password.equals(storedPasswordHash)) {
                     return userId; // Normal user with correct password, return userId
                 }
@@ -176,12 +195,14 @@ public class HomeTabSwing extends Application {
     }
     private void showEventsTab(Stage primaryStage, String userType, TextArea activitiesTextArea) {
         EventsTabSwing eventsTab;
-        if (userType.equals("Admin")) {
+        if (userType.equalsIgnoreCase("admin")) { // Use equalsIgnoreCase to ignore case
             eventsTab = new EventsTabSwing(userType, true, activitiesTextArea); // Pass true for admin access
         } else {
             eventsTab = new EventsTabSwing(userType, false, activitiesTextArea); // Pass false for normal user access
         }
-
+    
+        // ... rest of the method ...
+    
         Scene scene = new Scene(eventsTab, 600, 400);
         Stage eventsStage = new Stage();
         eventsStage.setTitle("Events Tab");
@@ -195,13 +216,13 @@ public class HomeTabSwing extends Application {
     private static class UserData {
         private final String name;
         private final String password;
-        private final String userType;
+        private final String usertype;
         private final int userId;
     
-        UserData(String name, String password, String userType, int userId) {
+        UserData(String name, String password, String usertype, int userId) {
             this.name = name;
             this.password = password;
-            this.userType = userType;
+            this.usertype = usertype;
             this.userId = userId;
         }
     
@@ -212,11 +233,9 @@ public class HomeTabSwing extends Application {
         String getPassword() {
             return password;
         }
-    
-        String getUserType() {
-            return userType;
+        String getusertype() {
+            return usertype;
         }
-    
         int getUserId() {
             return userId;
         }
